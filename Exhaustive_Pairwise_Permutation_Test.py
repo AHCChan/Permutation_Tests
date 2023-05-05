@@ -32,9 +32,11 @@ The output file will be a TSV. Each row will contain the results of the
 comparison(s) between two groups in an experiment. The columns will be:
     - Experiment ID
     - Group ID 1 (first group in comparison)
-    - Symbol signifying whether group 1 has a higher value, or group 2
     - Group ID 2 (second group in comparison)
     - (All comparison results)
+        - Each result comprises two values and thus two columns.
+        - The first column gives the probability value.
+        - The second column gives the group ID of the higher value group.
     - (All extra information which the user specified should be kept)
 
 
@@ -187,6 +189,8 @@ PRINT_ERRORS = True
 PRINT_PROGRESS = True
 PRINT_METRICS = True
 
+CRUDE_Z_TEST = False
+
 
 
 # Defaults #####################################################################
@@ -198,6 +202,13 @@ DEFAULT__keep = True
 
 
 # Imported Modules #############################################################
+
+if not CRUDE_Z_TEST:
+    import scipy.stats
+else:
+    from Crude_Z_Test import *
+
+
 
 import _Controlled_Print as PRINT
 from _Command_Line_Parser import *
@@ -249,6 +260,10 @@ STR__report_complete = "\nExhaustive_Pairwise_Permutation_Test successfully "\
 
 # Lists ########################################################################
 
+LIST__headers = ["EXPERIMENT", "GROUP_1", "OUTCOME", "GROUP_2"]
+
+
+
 LIST__frequentist = ["F", "f", "FREQUENTIST", "Frequentist", "frequentist",
         "FREQ", "Freq", "freq"]
 LIST__standard_d = ["SD", "Sd", "sd", "S", "s", "STANDARDDEVIATION",
@@ -280,7 +295,8 @@ def Exhaustive_Pairwise_Permutation_Test(path_in, delim, col_exp, col_grp,
             col_data, output_file, test_type, directional, header, keep,
             col_keep):
     """
-    For each experiment, perform pairwise tests between 
+    For each experiment, perform pairwise tests between the experimental groups.
+    
     @path_in
             (str - filepath)
             The filepath of the input file.
@@ -305,7 +321,8 @@ def Exhaustive_Pairwise_Permutation_Test(path_in, delim, col_exp, col_grp,
             values to be analyzed.
             (Uses a 0-index system.)
     @output_file
-            (str - filepath)
+            (str - filepath) OR
+            (None)
             The filepath of the file where the output will be written into.
     @test_type
             (int - ENUM)
@@ -329,20 +346,325 @@ def Exhaustive_Pairwise_Permutation_Test(path_in, delim, col_exp, col_grp,
             row of data from each experiment will be kept.
             (Uses a 0-index system.)
     
-    Exhaustive_Pairwise_Permutation_Test(path_in,delim,col_exp, col_grp,
-            col_data,output_file,test_type,header,keep,col_keep)
+    Exhaustive_Pairwise_Permutation_Test(path_in, delim, col_exp, col_grp,
+            col_data, output_file, test_type, header, keep, col_keep)
     """
     PRINT.printP(STR__report_begin)
-        
-    PRINT.printP(STR__report_complete)
+    
+    # Setup - Metrics
+    count_total = 0
+    count_tests = 0
+    count_exp = 0
+    count_grp = 0
+    count_line = 0
+    
+    # Setup - File I/O
+    f = Subgrouped_Table_Reader()
+    f.Set_New_Path(path_in)
+    f.Set_Delimiter(delim)
+    f.Set_Group_ID_Column_No(col_exp)
+    if header:
+        f.Set_Header_Params([1])
+    f.Open()
+    if output_file: o = open()
+    else: o = None
+    
+    # Setup - Others
+    cols = [col_exp] + [col_grp] + col_data
+    
+    # Header
+    if header and keep:
+        # Process string
+        header_str = f.Get_Header_Text()
+        headers = header_str.split(delim)
+        headers[-1] = headers[-1][:-1]
+        # Build
+        sb = delim.join(LIST__headers)
+        sb += delim + Build_String(headers, col_keep, delim)
+        # Write
+        Controlled_Output(sb, o)
+    
+    # Main loop
+    while not f.EOF:
+        f.Read()
+        raw = f.Get()
+        # Annotations
+        annotations = Build_String(raw[0], col_keep, delim)
+        # Core
+        data = Get_Data(raw, cols)
+        results = Pairwise_Analyses(data, test_type, directional)
+        total_score, total_tests, result_strs = results
+        # Output
+        for values in results:
+            sb = delim.join(result_strs)
+            sb += delim + annotations
+            Controlled_Output(sb, o)
+        # Metrics
+        count_total += total_score
+        count_tests += total_tests
+        count_exp += 1
+        count_grp += len(results)
+        count_line += len(data)
+    
+    # Finish
+    o.close()
+    f.Close()
     
     # Reporting
-    Report_Metrics(metrics)
+    Report_Metrics([count_total, count_tests, count_exp, count_grp, count_line,
+            len(col_data)])
     
     # Wrap up
     return 0
 
+def Get_Data(nested_lists, indexes):
+    """
+    Take a table of data (@nested_lists) and return only the relevant columns as
+    specified by @indexes.
+    
+    @nested_lists
+            (list<list<str>>)
+            The data table, stored as a list of lists. Each nested list
+            is one row of data.
+    @indexes
+            (list<int>)
+            For each "row" of data, these are the indexes for the columns which
+            contain the desired data.
+            The first index is the column number for the experiment IDs, the
+            second index is the column number for the group IDs, and the rest
+            are the indexes for the data values to be analyzed.
+    
+    Get_Data(list<list<str>>, list<int>) -> list<[str, str, float/None...]>
+    """
+    result = []
+    for sublist in nested_lists:
+        temp = []
+        temp.append(sublist[0])
+        temp.append(sublist[1])
+        for i in indexes[2:]:
+            value = sublist[i]
+            if value:
+                value = float(value)
+            else:
+                value = None
+            temp.append(value)
+        result.append(temp)
+    return result
 
+def Pairwise_Analyses(data, test_type, directional):
+    """
+    Perform the relevant pairwise analyses and return the metrics of the
+    resulting analysis and the strings to be output to the data file as a list
+    of lists.
+    
+    @data
+            (list<list>)
+            A list of lists. Each sublist contains the data for one sample.
+            The first value of the sublist is the experiment ID, a string.
+            The second value is the group ID, also a string.
+            The rest are data values as floats. If a value is missing, it will
+            be a None.
+    @test_type
+            (int - ENUM)
+            An integer denoting what kind of test will be performed on the data.
+            The options are as follows:
+                1 - Frequentist
+                2 - Standard Deviation
+    @directional
+            (bool)
+            Whether or not the tests should be directional or not.
+    
+    Pairwise_Analyses(<list<list>>, int, bool) -> [float, int, list<list<str>>]
+    """
+    # Setup - results
+    results = []
+    
+    # Setup - reading
+    length = len(data)
+    length_ = length - 2
+    range_ = range(lenth_)
+    exp_ID = data[0][0]
+    
+    group_IDs = []
+    for row in data:
+        group_ID = row[1]
+        group_IDs.append(group_ID)
+    group_IDs = list(group_IDs)
+    group_IDs = sorted(group_IDs)
+    
+    # Subsets
+    subsets = {}
+    for group_ID in group_IDs:
+        temp = [[]] * length_
+        subsets[group_ID] = temp
+    for row in data:
+        group_ID = row[1]
+        for i in range(2, length):
+            value = row[i]
+            if value:
+                subsets[group_ID][i] = value
+
+    # Pairs
+    pairs = Get_All_Pairs(group_IDs)
+    
+    for pair in pairs:
+        # Unpack
+        g1, g2 = pair
+        
+        # Setup
+        row_result = [group_ID, g1, g2]
+        
+        # All columns
+        for i in range_:
+            
+            # From subset
+            values_1 = subsets[g1][i]
+            values_2 = subsets[g2][i]
+            len_1 = length(values_1)
+            len_2 = length(values_2)
+            
+            # Original
+            avg_1 = sum(values_1)/len_1
+            avg_2 = sum(values_2)/len_2
+            if avg_1 > avg_2:
+                larger = g1
+                smaller = g2
+                difference = avg_1 - avg_2
+            else:
+                larger = g2
+                smaller = g1
+                difference = avg_2 - avg_1
+            
+            # Setup permutations
+            values = values_1 + values_2
+            IDs = ([g1] * len_1) + ([g2] * len_2)
+            permutations = Simple_Permutate[IDs]
+            len_both = len_1 + len_2
+            range_both = range(len_both)
+            
+            # Calculate all differences
+            differences = []
+            for permutation in permutations:
+                total_g1 = 0
+                total_g2 = 0
+                for i in range_both:
+                    value = values[i]
+                    ID = permutation[i]
+                    if ID == g1:
+                        total_g1 += value
+                    else:
+                        total_g2 += value
+                avg_1 = total_g1/len_1
+                avg_2 = total_g2/len_2
+                if larger == g1:
+                    permutation_dif = avg_1 - avg_2
+                else:
+                    permutation_dif = avg_2 - avg_1
+                differences.append(permutation_dif)
+
+            # Calculate p-value
+            p_value = Calculate_P_Value(difference, differences, test_type)
+            
+            # Calculate values
+            row_result.append(str(p_value))
+            row_result.append(larger)
+        
+       results.append(row_result)
+    
+    # Return
+    return results
+
+def Calculate_P_Value(difference, differences, test_type, directional):
+    """
+    Calculate the p-value of a difference given a number of differences
+    generated by permutation.
+    
+    @difference
+            (float)
+            The actual difference observed.
+    @differences
+            (list<float>)
+            The differences generated by permutating the group IDs.
+    @test_type
+            (int - ENUM)
+            An integer denoting what kind of test will be performed on the data.
+            The options are as follows:
+                1 - Frequentist
+                2 - Standard Deviation
+    @directional
+            (bool)
+            Whether or not the tests should be directional or not.
+    
+    Calculate_P_Value(float, list<float>, int) -> str
+    """
+    length = len(differences)
+    if test_type == TEST.FREQ:
+        count = 0
+        for i in differences:
+            if directional:
+                if i >= difference:
+                    count += 1
+            else:
+                if i >= abs(difference):
+                    count += 1
+        p = float(count)/length
+        return p
+    elif test_type == TEST.SDEV:
+        mean = sum(differences)/length
+        total = 0
+        for i in differences:
+            x = (i - mean) ** 2
+            total += x
+        sd = (total/length) ** 0.5
+        z_score = difference/sd
+        if directional:
+            p = Flexible_Z_Test(z_score)
+        else:
+            p = Flexible_Z_Test(z_score) * 2
+        return p
+    return "NA"
+
+def Flexible_Z_Test(z_score):
+    """
+    Convert a z-score into a p-value.
+    
+    Attempts to use the SciPy package, but can use an alternative if SciPy is
+    not available.
+    
+    @z_score
+            (float)
+            Z-Score. The number of standard deviations a value is from the mean.
+    
+    Flexible_Z_Test(float) -> float
+    """
+    if CRUDE_Z_TEST:
+        return SF(z_score)
+    else:
+        return scipy.stats.norm.sf(z_score)
+
+def Build_Header_String(list_, indexes, delim):
+    """
+    Build an output string from the values in @list_, according to the indexes
+    given. The values will be separated be @delim.
+    
+    @list_
+            (list<str>)
+            The raw values.
+    @indexes
+            (list<int>)
+            The indexes of the values to be used.
+    @delim
+            (str)
+            The delimiter used to separate the values.
+    
+    Build_String(list<str>, list<int>, str) -> str
+    """
+    headers = []
+    for i in indexes:
+        headers.append(list_[i])
+    result = (2*delim).join(headers)
+    result += delim
+    return result        
 
 def Report_Metrics(metrics):
     """
@@ -356,7 +678,28 @@ def Report_Metrics(metrics):
     Report_Metrics(list<int>(6)) -> None
     """
     return None
+
+def Controlled_Output(string, output_file):
+    """
+    Output the string to the output file, if an output file were specified.
+    If no output file were specified, print the string to console.
     
+    @string
+            (str)
+            The string to be outputted.
+    @output_file
+            (file) OR
+            (None)
+            The output file to which the string is to be written, or None.
+    
+    Controlled_Output(str, file) -> None
+    Controlled_Output(str, None) -> None
+    """
+    if output_file:
+        output_file.write(string + "\n")
+    else:
+        print(string)
+
 
 
 # Command Line Parsing #########################################################
