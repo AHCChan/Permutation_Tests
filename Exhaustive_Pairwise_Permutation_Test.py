@@ -263,10 +263,6 @@ STR__report_complete = "\nExhaustive_Pairwise_Permutation_Test successfully "\
 
 # Lists ########################################################################
 
-LIST__headers = ["EXPERIMENT", "GROUP_1", "GROUP_2"]
-
-
-
 LIST__frequentist = ["F", "f", "FREQUENTIST", "Frequentist", "frequentist",
         "FREQ", "Freq", "freq"]
 LIST__standard_d = ["SD", "Sd", "sd", "S", "s", "STANDARDDEVIATION",
@@ -382,9 +378,8 @@ def Exhaustive_Pairwise_Permutation_Test(path_in, delim, col_exp, col_grp,
         headers = header_str.split(delim)
         headers[-1] = headers[-1][:-1]
         # Build
-        sb = delim.join(LIST__headers)
-        sb += Build_Header_String(headers, col_exp, col_grp, col_data,
-                col_keep, delim)
+        sb = Build_Header_String(headers, col_exp, col_grp, col_data, col_keep,
+                delim)
         # Write
         Controlled_Output(sb, o)
     
