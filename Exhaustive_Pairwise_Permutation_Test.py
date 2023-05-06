@@ -97,7 +97,7 @@ OPTIONAL:
     
     test_type
         
-        (DEFAULT: F)
+        (DEFAULT: S)
         
         The type of test to perform. Acceptable options are:
             F - Frequentist
@@ -195,10 +195,11 @@ CRUDE_Z_TEST = False
 
 # Defaults #####################################################################
 
-DEFAULT__test = 1 #FREQUENTIST
+DEFAULT__test = 2 # STANDARD DEVIATIONS
 DEFAULT__directional = False
 DEFAULT__header = True
 DEFAULT__keep = True
+
 
 
 # Imported Modules #############################################################
@@ -438,8 +439,8 @@ def Get_Data(nested_lists, indexes):
     result = []
     for sublist in nested_lists:
         temp = []
-        temp.append(sublist[0])
-        temp.append(sublist[1])
+        temp.append(sublist[indexes[0]])
+        temp.append(sublist[indexes[1]])
         for i in indexes[2:]:
             value = sublist[i]
             if value:
@@ -716,12 +717,54 @@ def Report_Metrics(metrics):
     operation.
     
     @metrics
-            (list<int>)
+            (list<X>)
             A list of summary metrics for the data, including:
+                (float) - The summed p-values of all tests performed
+                (int)   - The total number of tests performed
+                (int)   - The number of experiments
+                (int)   - The number of groups
+                (int)   - The number of rows of data
+                (int)   - The number of columns of data
     
-    Report_Metrics(list<int>(6)) -> None
+    Report_Metrics(list<X>(6)) -> None
     """
-    return None
+    # Unpacking
+    total = metrics[0]
+    tests = metrics[1]
+    exps = metrics[2]
+    grps = metrics[3]
+    rows = metrics[4]
+    cols = metrics[5]
+    # Calculations
+    avg_score = (total)/tests
+    avg_grps_per_exp = float(grps)/exps
+    avg_rows_per_exp = float(rows)/exps
+    avg_rows_per_grp = float(rows)/grps
+    # Strings
+    avg_score = str(avg_score)
+    avg_grps_per_exp = str(avg_grps_per_exp)
+    avg_rows_per_exp = str(avg_rows_per_exp)
+    avg_rows_per_grp = str(avg_rows_per_grp)
+    # Percentage strings
+    avg_score = Trim_Percentage_Str(avg_score, 2)
+    avg_grps_per_exp = Trim_Percentage_Str(avg_grps_per_exp, 2)
+    avg_rows_per_exp = Trim_Percentage_Str(avg_rows_per_exp, 2)
+    avg_rows_per_grp = Trim_Percentage_Str(avg_rows_per_grp, 2)
+    # Integer strings
+    exps = str(exps) + "   "
+    grps = str(grps) + "   "
+    rows = str(rows) + "   "
+    cols = str(cols) + "   "
+    # Repacking
+    metrics = [avg_score, exps, grps, rows, cols, avg_grps_per_exp,
+            avg_rows_per_exp, avg_rows_per_grp]
+    # Pad all
+    max_size = Get_Max_Len(metrics)
+    metrics = Pad_Column(metrics, 0, 0, " ", 0)
+    # Print
+    PRINT.printM(STR__metrics.format(A = metrics[0], B = metrics[1],
+            C = metrics[2], D = metrics[3], E = metrics[4], F = metrics[5],
+            G = metrics[6], H = metrics[7]))
 
 def Controlled_Output(string, output_file):
     """
