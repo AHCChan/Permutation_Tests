@@ -1,4 +1,4 @@
-"""
+HELP_DOC = """
 EXHAUSTIVE PAIRWISE PERMUTATION TEST
 (version 1.0)
 by Angelo Chan
@@ -231,6 +231,9 @@ class TEST:
 
 # Strings ######################################################################
 
+STR__use_help = "\nUse the -h option for help:\n\tpython "\
+"Exhaustive_Pairwise_Permutation_Test.py -h"
+
 STR__test_type = "\nERROR: Invalid test type:\n\t{s}"
 
 
@@ -260,7 +263,7 @@ STR__report_complete = "\nExhaustive_Pairwise_Permutation_Test successfully "\
 
 # Lists ########################################################################
 
-LIST__headers = ["EXPERIMENT", "GROUP_1", "OUTCOME", "GROUP_2"]
+LIST__headers = ["EXPERIMENT", "GROUP_1", "GROUP_2"]
 
 
 
@@ -292,7 +295,7 @@ PRINT.PRINT_METRICS = PRINT_METRICS
 # Functions ####################################################################
 
 def Exhaustive_Pairwise_Permutation_Test(path_in, delim, col_exp, col_grp,
-            col_data, output_file, test_type, directional, header, keep,
+            col_data, path_out, test_type, directional, header, keep,
             col_keep):
     """
     For each experiment, perform pairwise tests between the experimental groups.
@@ -320,7 +323,7 @@ def Exhaustive_Pairwise_Permutation_Test(path_in, delim, col_exp, col_grp,
             A list of the column numbers for the columns which contain the
             values to be analyzed.
             (Uses a 0-index system.)
-    @output_file
+    @path_out
             (str - filepath) OR
             (None)
             The filepath of the file where the output will be written into.
@@ -366,7 +369,7 @@ def Exhaustive_Pairwise_Permutation_Test(path_in, delim, col_exp, col_grp,
     if header:
         f.Set_Header_Params([1])
     f.Open()
-    if output_file: o = open()
+    if path_out: o = open(path_out, "w")
     else: o = None
     
     # Setup - Others
@@ -380,7 +383,8 @@ def Exhaustive_Pairwise_Permutation_Test(path_in, delim, col_exp, col_grp,
         headers[-1] = headers[-1][:-1]
         # Build
         sb = delim.join(LIST__headers)
-        sb += delim + Build_String(headers, col_keep, delim)
+        sb += Build_Header_String(headers, col_exp, col_grp, col_data,
+                col_keep, delim)
         # Write
         Controlled_Output(sb, o)
     
@@ -395,8 +399,8 @@ def Exhaustive_Pairwise_Permutation_Test(path_in, delim, col_exp, col_grp,
         results = Pairwise_Analyses(data, test_type, directional)
         total_score, total_tests, result_strs = results
         # Output
-        for values in results:
-            sb = delim.join(result_strs)
+        for values in result_strs:
+            sb = delim.join(values)
             sb += delim + annotations
             Controlled_Output(sb, o)
         # Metrics
@@ -407,7 +411,7 @@ def Exhaustive_Pairwise_Permutation_Test(path_in, delim, col_exp, col_grp,
         count_line += len(data)
     
     # Finish
-    o.close()
+    if path_out: o.close()
     f.Close()
     
     # Reporting
@@ -480,9 +484,9 @@ def Pairwise_Analyses(data, test_type, directional):
     results = []
     
     # Setup - reading
-    length = len(data)
+    length = len(data[0])
     length_ = length - 2
-    range_ = range(lenth_)
+    range_ = range(length_)
     exp_ID = data[0][0]
     
     group_IDs = []
@@ -492,18 +496,23 @@ def Pairwise_Analyses(data, test_type, directional):
     group_IDs = list(group_IDs)
     group_IDs = sorted(group_IDs)
     
+    # Setup - metrics
+    total_score = 0.0
+    total_tests = 0
+    
     # Subsets
     subsets = {}
     for group_ID in group_IDs:
-        temp = [[]] * length_
+        temp = []
+        for i in range_:
+            temp.append([]) # Necessary to ensure hardcopying
         subsets[group_ID] = temp
     for row in data:
         group_ID = row[1]
         for i in range(2, length):
             value = row[i]
             if value:
-                subsets[group_ID][i] = value
-
+                subsets[group_ID][i-2].append(value)
     # Pairs
     pairs = Get_All_Pairs(group_IDs)
     
@@ -512,7 +521,7 @@ def Pairwise_Analyses(data, test_type, directional):
         g1, g2 = pair
         
         # Setup
-        row_result = [group_ID, g1, g2]
+        row_result = [exp_ID, g1, g2]
         
         # All columns
         for i in range_:
@@ -520,8 +529,8 @@ def Pairwise_Analyses(data, test_type, directional):
             # From subset
             values_1 = subsets[g1][i]
             values_2 = subsets[g2][i]
-            len_1 = length(values_1)
-            len_2 = length(values_2)
+            len_1 = len(values_1)
+            len_2 = len(values_2)
             
             # Original
             avg_1 = sum(values_1)/len_1
@@ -538,7 +547,7 @@ def Pairwise_Analyses(data, test_type, directional):
             # Setup permutations
             values = values_1 + values_2
             IDs = ([g1] * len_1) + ([g2] * len_2)
-            permutations = Simple_Permutate[IDs]
+            permutations = Simple_Permutate(IDs)
             len_both = len_1 + len_2
             range_both = range(len_both)
             
@@ -563,16 +572,19 @@ def Pairwise_Analyses(data, test_type, directional):
                 differences.append(permutation_dif)
 
             # Calculate p-value
-            p_value = Calculate_P_Value(difference, differences, test_type)
+            p_value = Calculate_P_Value(difference, differences, test_type,
+                    directional)
+            total_score += p_value
+            total_tests += 1
             
-            # Calculate values
+            # Stringbuilding
             row_result.append(str(p_value))
             row_result.append(larger)
-        
-       results.append(row_result)
+            
+        results.append(row_result)
     
     # Return
-    return results
+    return [total_score, total_tests, results]
 
 def Calculate_P_Value(difference, differences, test_type, directional):
     """
@@ -642,7 +654,45 @@ def Flexible_Z_Test(z_score):
     else:
         return scipy.stats.norm.sf(z_score)
 
-def Build_Header_String(list_, indexes, delim):
+def Build_Header_String(list_, col_exp, col_grp, col_data, col_keep, delim):
+    """
+    Build an output string for the header, according to the values and indexes
+    given.
+    
+    @list_
+            (list<str>)
+            The raw values.
+    @col_exp
+            (int)
+            The column number for the column containing the experiment IDs.
+            (Uses a 0-index system.)
+    @col_grp
+            (int)
+            The column number for the column containing the group IDs.
+            (Uses a 0-index system.)
+    @col_data
+            (list<int>)
+            The indexes of the columns containing data.
+    @col_keep
+            (list<int>)
+            The indexes of the columns containing annotations.
+    @delim
+            (str)
+            The delimiter used to separate the values.
+    
+    Build_String(list<str>, list<int>, str) -> str
+    """
+    headers_data = []
+    for i in col_data:
+        headers_data.append(list_[i])
+    headers_keep = []
+    for i in col_keep:
+        headers_keep.append(list_[i])
+    result = (list_[col_exp] + delim + list_[col_grp] + delim +
+            (2*delim).join(headers_data) + delim + delim.join(headers_keep))
+    return result
+
+def Build_String(list_, indexes, delim):
     """
     Build an output string from the values in @list_, according to the indexes
     given. The values will be separated be @delim.
@@ -662,9 +712,8 @@ def Build_Header_String(list_, indexes, delim):
     headers = []
     for i in indexes:
         headers.append(list_[i])
-    result = (2*delim).join(headers)
-    result += delim
-    return result        
+    result = (delim).join(headers)
+    return result     
 
 def Report_Metrics(metrics):
     """
@@ -704,7 +753,7 @@ def Controlled_Output(string, output_file):
 
 # Command Line Parsing #########################################################
 
-def Parse_Command_Line_Input__Consolidate_GE_Files(raw_command_line_input):
+def Parse_Command_Line_Input__Pairwise_Permutation_Test(raw_command_line_input):
     """
     Parse the command line input and call the
     Exhaustive_Pairwise_Permutation_Test function with appropriate arguments if
@@ -744,27 +793,30 @@ def Parse_Command_Line_Input__Consolidate_GE_Files(raw_command_line_input):
         PRINT.printE(STR__IO_error_read.format(f = path_in))
         PRINT.printE(STR__use_help)
         return 1
-    delim = Validate_File_Format(input_format)
+    delim = Validate_Table_File_Format(input_format)
     if not delim:
-        printE(STR__invalid_file_format.format(io = "input", s = input_format))
+        PRINT.printE(STR__invalid_table_format.format(io = "input",
+                s = input_format))
         return 1
     col_exp = Validate_Int_Positive(raw_col_exp)
     if col_exp == -1:
-        printE(STR__invalid_column.format(s = raw_col_exp))
+        PRINT.printE(STR__invalid_column.format(s = raw_col_exp))
         return 1
     col_exp -= 1
     col_grp = Validate_Int_Positive(raw_col_grp)
     if col_exp == -1:
-        printE(STR__invalid_column.format(s = raw_col_grp))
+        PRINT.printE(STR__invalid_column.format(s = raw_col_grp))
         return 1
     col_grp -= 1
     col_data = Validate_List_Of_Ints_Positive(raw_col_data, ",")
     if not col_data:
-        printE(STR__invalid_columns.format(s = raw_col_data, "commas"))
+        PRINT.printE(STR__invalid_columns.format(s = raw_col_data,
+                d = "commas"))
         return 1
+    col_data = [i-1 for i in col_data]
     
     # Set up rest of the parsing
-    output_file = None
+    path_out = None
     test_type = DEFAULT__test
     directional = DEFAULT__directional
     header = DEFAULT__header
@@ -812,14 +864,13 @@ def Parse_Command_Line_Input__Consolidate_GE_Files(raw_command_line_input):
                 PRINT.printE(STR__invalid_arg_for_flag.format("-h"))
                 PRINT.printE(STR__use_help)
                 return 1
-            header = valid
         else: #arg == "-k"
             col_keep = Validate_List_Of_Ints_Positive(arg2, ",")
+            col_keep = [i-1 for i in col_keep]
             if not col_keep:
                 PRINT.printE(STR__invalid_columns.format(s=arg2, d="commas"))
                 PRINT.printE(STR__use_help)
                 return 1
-            annotation_only = valid
     
     # Validate output path
     if path_out:
@@ -831,10 +882,10 @@ def Parse_Command_Line_Input__Consolidate_GE_Files(raw_command_line_input):
         if valid_out == 4:
             PRINT.printE(STR__IO_error_write_unable)
             return 1
-
+    
     # Run program
-    exit_code = Exhaustive_Pairwise_Permutation_Test(path_in,delim,col_exp,
-            col_grp,col_data,output_file,test_type,directional,header,keep,
+    exit_state = Exhaustive_Pairwise_Permutation_Test(path_in,delim,col_exp,
+            col_grp,col_data,path_out,test_type,directional,header,keep,
             col_keep)
     
     # Safe exit
