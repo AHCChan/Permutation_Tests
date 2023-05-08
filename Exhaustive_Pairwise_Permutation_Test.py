@@ -105,7 +105,7 @@ OPTIONAL:
     
     directional
         
-        (DEFAULT: N)
+        (DEFAULT: Y)
         
         Whether or not the test is a directional one.
         If yes, the test tests the probability of the larger group being larger
@@ -196,7 +196,7 @@ CRUDE_Z_TEST = False
 # Defaults #####################################################################
 
 DEFAULT__test = 2 # STANDARD DEVIATIONS
-DEFAULT__directional = False
+DEFAULT__directional = True
 DEFAULT__header = True
 DEFAULT__keep = True
 
